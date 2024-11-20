@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agregar Amigos</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <h1 class="text-center mb-4">Usuarios disponibles para agregar</h1>
+        <ul class="list-group">
+            {% for usuario in usuarios %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ usuario.nombre }}</strong> - <span>{{ usuario.email }}</span>
+                </div>
+                <form method="post" action="/enviar_solicitud/{{ usuario._id }}" class="mb-0">
+                    <button type="submit" class="btn btn-primary btn-sm">Enviar Solicitud</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        <div class="mt-4 text-center">
+            <a href="/profile" class="btn btn-secondary">Regresar</a>
+        </div>
+    </div>
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
