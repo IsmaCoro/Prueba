@@ -285,8 +285,6 @@ def ver_solicitudes():
     solicitudes = db.usuarios.find({"_id": {"$in": solicitudes_ids}})
     return render_template('ver_solicitudes.html', solicitudes=solicitudes)
 
-
-
 @app.route('/delete_post/<post_id>', methods=['POST'])
 @login_required
 def delete_post(post_id):
