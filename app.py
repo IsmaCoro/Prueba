@@ -9,10 +9,9 @@ import os
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
-# Reemplaza "<usuario>" y "<contraseña>" con tus credenciales reales
-client = MongoClient("mongodb+srv://jonathancorona6790:KMn801EQIe5L8q4p@ismaelprueba.s4opn.mongodb.net/microgram")
+# MongoDB Setup
+client = MongoClient('mongodb://localhost:27017/')
 db = client['microgram']
-
 
 # Flask-Login Setup
 login_manager = LoginManager()
@@ -29,7 +28,6 @@ class User(UserMixin):
     def __init__(self, user_id):
         self.id = user_id
 
-
 @login_manager.user_loader
 def load_user(user_id):
     user_data = db.usuarios.find_one({"_id": ObjectId(user_id)})
@@ -37,48 +35,43 @@ def load_user(user_id):
         return User(user_id=user_data["_id"])
     return None
 
-
 # Helper function to check allowed files
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
-# === Rutas principales ===
 @app.route('/')
 def home():
     return redirect(url_for('login'))
 
-
-# === Gestión de usuarios ===
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
         nombre = request.form['nombre']
         email = request.form['email']
-        password = request.form['password']  # Password almacenada sin cifrar (solo para simplicidad)
+        password = request.form['password']  # Password is stored in plaintext for simplicity
         db.usuarios.insert_one({
             "nombre": nombre,
             "email": email,
             "password": password,
             "fecha_registro": datetime.now().strftime('%Y-%m-%d'),
-            "publicaciones": [],
-            "amigos": [],
-            "solicitudes": []
+            "publicaciones": []
         })
         return redirect(url_for('login'))
     return render_template('register.html')
 
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    error = None  # Variable para almacenar el mensaje de error
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
-        user = db.usuarios.find_one({"email": email, "password": password})
-        if user:
+        user = db.usuarios.find_one({"email": email})
+        if user and user['password'] == password:
             login_user(User(user_id=str(user["_id"])))
             return redirect(url_for('profile'))
-    return render_template('login.html')
+        else:
+            error = "Correo o contraseña incorrectos. Por favor, inténtalo de nuevo."
+    return render_template('login.html', error=error)
 
 
 @app.route('/logout')
@@ -87,7 +80,6 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-
 @app.route('/profile')
 @login_required
 def profile():
@@ -95,8 +87,6 @@ def profile():
     publicaciones = db.publicaciones.find({"usuario_id": current_user.id})
     return render_template('profile.html', user=user_data, publicaciones=publicaciones)
 
-
-# === Gestión de publicaciones ===
 @app.route('/create_post', methods=['POST'])
 @login_required
 def create_post():
@@ -108,7 +98,8 @@ def create_post():
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
-        file_url = file_path.replace("\\", "/")
+        # Normaliza la ruta para que funcione en la web
+        file_url = file_path.replace("\\", "/")  # Reemplaza las barras invertidas por barras normales
 
     db.publicaciones.insert_one({
         "usuario_id": current_user.id,
@@ -121,46 +112,24 @@ def create_post():
     return redirect(url_for('profile'))
 
 
-@app.route('/delete_post/<post_id>', methods=['POST'])
-@login_required
-def delete_post(post_id):
-    db.publicaciones.delete_one({"_id": ObjectId(post_id), "usuario_id": current_user.id})
-    return redirect(url_for('profile'))
-
-
-@app.route('/feed')
-def feed():
-    publicaciones = db.publicaciones.find().sort("fecha_publicacion", -1)
-    return render_template('feed.html', publicaciones=publicaciones)
-
-
-@app.route('/ver_publicaciones_amigos')
-@login_required
-def ver_publicaciones_amigos():
-    user = db.usuarios.find_one({"_id": ObjectId(current_user.id)})
-    amigos_ids = user.get("amigos", [])
-    publicaciones = list(db.publicaciones.find({"usuario_id": {"$in": amigos_ids}}))
-
-    for post in publicaciones:
-        usuario = db.usuarios.find_one({"_id": ObjectId(post["usuario_id"])})
-        post["usuario_nombre"] = usuario["nombre"]
-        for comentario in post["comentarios"]:
-            autor_comentario = db.usuarios.find_one({"_id": ObjectId(comentario["usuario_id"])})
-            comentario["usuario_nombre"] = autor_comentario["nombre"]
-
-    return render_template('ver_publicaciones_amigos.html', publicaciones=publicaciones)
-
-
-# === Likes y comentarios ===
 @app.route('/like_post/<post_id>', methods=['POST'])
 @login_required
 def like_post(post_id):
     post = db.publicaciones.find_one({"_id": ObjectId(post_id)})
     if current_user.id in post.get("likes", []):
-        db.publicaciones.update_one({"_id": ObjectId(post_id)}, {"$pull": {"likes": current_user.id}})
+        db.publicaciones.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$pull": {"likes": current_user.id}}
+        )
     else:
-        db.publicaciones.update_one({"_id": ObjectId(post_id)}, {"$pull": {"dislikes": current_user.id}})
-        db.publicaciones.update_one({"_id": ObjectId(post_id)}, {"$addToSet": {"likes": current_user.id}})
+        db.publicaciones.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$pull": {"dislikes": current_user.id}}
+        )
+        db.publicaciones.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$addToSet": {"likes": current_user.id}}
+        )
     post = db.publicaciones.find_one({"_id": ObjectId(post_id)})
     return jsonify({"likes": len(post["likes"]), "dislikes": len(post["dislikes"])})
 
@@ -170,10 +139,19 @@ def like_post(post_id):
 def dislike_post(post_id):
     post = db.publicaciones.find_one({"_id": ObjectId(post_id)})
     if current_user.id in post.get("dislikes", []):
-        db.publicaciones.update_one({"_id": ObjectId(post_id)}, {"$pull": {"dislikes": current_user.id}})
+        db.publicaciones.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$pull": {"dislikes": current_user.id}}
+        )
     else:
-        db.publicaciones.update_one({"_id": ObjectId(post_id)}, {"$pull": {"likes": current_user.id}})
-        db.publicaciones.update_one({"_id": ObjectId(post_id)}, {"$addToSet": {"dislikes": current_user.id}})
+        db.publicaciones.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$pull": {"likes": current_user.id}}
+        )
+        db.publicaciones.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$addToSet": {"dislikes": current_user.id}}
+        )
     post = db.publicaciones.find_one({"_id": ObjectId(post_id)})
     return jsonify({"likes": len(post["likes"]), "dislikes": len(post["dislikes"])})
 
@@ -186,22 +164,38 @@ def comment_post(post_id):
         if not comment_text.strip():
             return jsonify({"error": "Comentario vacío"}), 400
 
+        # Obtén el nombre del usuario que está comentando
         user = db.usuarios.find_one({"_id": ObjectId(current_user.id)})
+
+        # Construye el comentario
         comment = {
-            "usuario_id": str(current_user.id),
-            "usuario_nombre": user["nombre"],
+            "usuario_id": str(current_user.id),  # Convierte el ObjectId a string
+            "usuario_nombre": user["nombre"],    # Incluye el nombre del usuario
             "texto": comment_text,
             "fecha_comentario": datetime.now().strftime('%Y-%m-%d')
         }
 
-        db.publicaciones.update_one({"_id": ObjectId(post_id)}, {"$push": {"comentarios": comment}})
+        # Agrega el comentario a la base de datos
+        db.publicaciones.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$push": {"comentarios": comment}}
+        )
+
+        # Devuelve el comentario como respuesta JSON
         return jsonify({"comment": comment})
     except Exception as e:
-        print(f"Error al agregar comentario: {e}")
+        print(f"Error al agregar comentario: {e}")  # Para depuración en consola
         return jsonify({"error": "Hubo un error al agregar el comentario"}), 500
 
 
-# === Gestión de amigos ===
+
+
+
+@app.route('/feed')
+def feed():
+    publicaciones = db.publicaciones.find().sort("fecha_publicacion", -1)
+    return render_template('feed.html', publicaciones=publicaciones)
+
 @app.route('/ver_amigos')
 @login_required
 def ver_amigos():
@@ -218,27 +212,68 @@ def agregar_amigos():
     usuarios = db.usuarios.find({"_id": {"$nin": amigos_ids + [ObjectId(current_user.id)]}})
     return render_template('agregar_amigos.html', usuarios=usuarios)
 
+@app.route('/ver_publicaciones_amigos')
+@login_required
+def ver_publicaciones_amigos():
+    user = db.usuarios.find_one({"_id": ObjectId(current_user.id)})
+    amigos_ids = user.get("amigos", [])
+    
+    # Obtener las publicaciones de los amigos
+    publicaciones = list(db.publicaciones.find({"usuario_id": {"$in": amigos_ids}}))
+    
+    # Agregar información adicional (nombre del autor y nombres en comentarios)
+    for post in publicaciones:
+        # Obtener el nombre del autor de la publicación
+        usuario = db.usuarios.find_one({"_id": ObjectId(post["usuario_id"])})
+        post["usuario_nombre"] = usuario["nombre"]
+        
+        # Procesar los comentarios
+        for comentario in post["comentarios"]:
+            autor_comentario = db.usuarios.find_one({"_id": ObjectId(comentario["usuario_id"])})
+            comentario["usuario_nombre"] = autor_comentario["nombre"]
+    
+    return render_template('ver_publicaciones_amigos.html', publicaciones=publicaciones)
+
+
+
+
 
 @app.route('/enviar_solicitud/<amigo_id>', methods=['POST'])
 @login_required
 def enviar_solicitud(amigo_id):
-    db.usuarios.update_one({"_id": ObjectId(amigo_id)}, {"$addToSet": {"solicitudes": ObjectId(current_user.id)}})
+    db.usuarios.update_one(
+        {"_id": ObjectId(amigo_id)},
+        {"$addToSet": {"solicitudes": ObjectId(current_user.id)}}
+    )
     return redirect(url_for('agregar_amigos'))
-
 
 @app.route('/aceptar_solicitud/<solicitante_id>', methods=['POST'])
 @login_required
 def aceptar_solicitud(solicitante_id):
-    db.usuarios.update_one({"_id": ObjectId(current_user.id)}, {"$addToSet": {"amigos": ObjectId(solicitante_id)}})
-    db.usuarios.update_one({"_id": ObjectId(solicitante_id)}, {"$addToSet": {"amigos": ObjectId(current_user.id)}})
-    db.usuarios.update_one({"_id": ObjectId(current_user.id)}, {"$pull": {"solicitudes": ObjectId(solicitante_id)}})
+    # Añadir a los amigos
+    db.usuarios.update_one(
+        {"_id": ObjectId(current_user.id)},
+        {"$addToSet": {"amigos": ObjectId(solicitante_id)}}
+    )
+    db.usuarios.update_one(
+        {"_id": ObjectId(solicitante_id)},
+        {"$addToSet": {"amigos": ObjectId(current_user.id)}}
+    )
+    # Eliminar de las solicitudes
+    db.usuarios.update_one(
+        {"_id": ObjectId(current_user.id)},
+        {"$pull": {"solicitudes": ObjectId(solicitante_id)}}
+    )
     return redirect(url_for('ver_solicitudes'))
 
 
 @app.route('/rechazar_solicitud/<solicitante_id>', methods=['POST'])
 @login_required
 def rechazar_solicitud(solicitante_id):
-    db.usuarios.update_one({"_id": ObjectId(current_user.id)}, {"$pull": {"solicitudes": ObjectId(solicitante_id)}})
+    db.usuarios.update_one(
+        {"_id": ObjectId(current_user.id)},
+        {"$pull": {"solicitudes": ObjectId(solicitante_id)}}
+    )
     return redirect(url_for('ver_solicitudes'))
 
 
@@ -251,7 +286,17 @@ def ver_solicitudes():
     return render_template('ver_solicitudes.html', solicitudes=solicitudes)
 
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
 
+@app.route('/delete_post/<post_id>', methods=['POST'])
+@login_required
+def delete_post(post_id):
+    # Eliminar solo si la publicación pertenece al usuario actual
+    db.publicaciones.delete_one({"_id": ObjectId(post_id), "usuario_id": current_user.id})
+    return redirect(url_for('profile'))
+
+
+
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
